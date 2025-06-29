@@ -110,6 +110,21 @@ Modify the following JSON template to set the path to the MCP server in your MCP
 }
 ```
 
+Modify the following JSON template to set the path to the MCP server in your MCP client for MacOS:
+
+```json
+{
+  "mcpServers": {
+    "mpc-system-monitor": {
+      "command": "/bin/zsh",
+      "args": [
+        "/Users/holistech/Documents/GitHub/mcp-system-monitor/start_mcp_system_monitor.sh"
+      ]
+    }
+  }
+}
+```
+
 ### Example Tool Usage
 
 Once connected to Claude Desktop or another MCP client, you can use natural language to interact with the system
