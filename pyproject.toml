@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-system-monitor"
+version = "0.1.0"
+authors = [
+    { name = "Sören Gebbert", email = "soerengebbert@holistech.de" },
+]
+description = "A comprehensive cross-platform system monitor MCP server for LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Monitoring",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "mcp[cli]",
+    "psutil",
+    "pydantic",
+    "nvidia-ml-py",
+    "pynvml",
+    "uv"
+]
+
+[project.optional-dependencies]
+win32 = [
+    "wmi",
+    "pywin32",
+]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/huhabla/mcp-system-monitor"
+"Bug Tracker" = "https://github.com/huhabla/mcp-system-monitor/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"

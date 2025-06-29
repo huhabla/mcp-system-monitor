@@ -1,0 +1,13 @@
+mcp[cli]
+psutil
+pydantic
+nvidia-ml-py
+pynvml
+wmi; sys_platform == "win32"
+pywin32; sys_platform == "win32"
+uv
+
+# Development dependencies
+pytest
+pytest-asyncio
+pytest-cov
