@@ -8,7 +8,7 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 ### System Monitoring
 
 - **CPU Monitoring**: Real-time usage, per-core statistics, frequency, temperature, detailed processor information (model, vendor, architecture, cache sizes)
-- **GPU Monitoring**: NVIDIA GPU support via NVML (usage, VRAM, temperature)
+- **GPU Monitoring**: Multi-vendor GPU support (NVIDIA with full metrics, AMD/Intel/Apple with basic info)
 - **Memory Monitoring**: RAM and swap usage, availability statistics
 - **Disk Monitoring**: Space usage, filesystem information for all mounted drives
 - **Network Statistics**: Interface-level traffic and error counters
@@ -159,6 +159,9 @@ pytest tests/test_mcp_system_monitor_server.py --cov=mcp_system_monitor_server -
 |-------------------------|---------|-------|-------|
 | CPU Monitoring          | ✅       | ✅     | ✅     |
 | GPU Monitoring (NVIDIA) | ✅       | ✅     | ✅     |
+| GPU Monitoring (AMD)    | ⚠️      | ❌     | ⚠️    |
+| GPU Monitoring (Intel)  | ⚠️      | ❌     | ⚠️    |
+| GPU Monitoring (Apple)  | ❌       | ⚠️    | ❌     |
 | Memory Monitoring       | ✅       | ✅     | ✅     |
 | Disk Monitoring         | ✅       | ✅     | ✅     |
 | Network Statistics      | ✅       | ✅     | ✅     |

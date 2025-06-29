@@ -392,11 +392,334 @@ class GPUCollector(BaseCollector):
             except Exception as e:
                 logger.warning(f"Failed to initialize NVML via nvidia-ml-py: {e}")
         else:
-            logger.info("No GPU monitoring library available")
+            logger.info("No NVIDIA GPU monitoring library available, will try generic methods")
+
+    def _get_generic_gpu_info_windows(self) -> List[Dict[str, Any]]:
+        """Get GPU info on Windows using WMI via subprocess."""
+        gpus = []
+        try:
+            import subprocess
+
+            # Get GPU info via wmic
+            result = subprocess.run(
+                ["wmic", "path", "win32_VideoController", "get", "Name,AdapterRAM,CurrentRefreshRate,VideoProcessor",
+                 "/value"],
+                capture_output=True, text=True, timeout=5
+            )
+
+            if result.returncode == 0:
+                current_gpu = {}
+                gpu_id = 0
+
+                for line in result.stdout.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        value = value.strip()
+
+                        if key == "Name" and value:
+                            if current_gpu:
+                                # Process previous GPU
+                                gpus.append(current_gpu)
+                                gpu_id += 1
+                            current_gpu = {
+                                "id": gpu_id,
+                                "name": value,
+                                "load": None,  # Not available via WMI
+                                "memory_used": None,
+                                "memory_total": None,
+                                "memory_percent": None,
+                                "temperature": None,
+                                "power_usage": None
+                            }
+                        elif key == "AdapterRAM" and value and current_gpu:
+                            try:
+                                # AdapterRAM is in bytes
+                                memory_bytes = int(value)
+                                if memory_bytes > 0:
+                                    current_gpu["memory_total"] = memory_bytes / 1024 / 1024  # Convert to MB
+                            except ValueError:
+                                pass
+                        elif key == "VideoProcessor" and value and current_gpu:
+                            # Add video processor info to name if available
+                            if value and value != current_gpu.get("name", ""):
+                                current_gpu["name"] = f"{current_gpu['name']} ({value})"
+
+                # Don't forget the last GPU
+                if current_gpu and "name" in current_gpu:
+                    gpus.append(current_gpu)
+
+            # Try to get GPU usage via performance counters
+            if gpus:
+                try:
+                    # Get GPU utilization
+                    result = subprocess.run(
+                        ["wmic", "path", "Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine",
+                         "where", "Name like '%engtype_3D%'", "get", "UtilizationPercentage", "/value"],
+                        capture_output=True, text=True, timeout=5
+                    )
+
+                    if result.returncode == 0:
+                        utilizations = []
+                        for line in result.stdout.strip().split('\n'):
+                            if 'UtilizationPercentage=' in line:
+                                try:
+                                    util = float(line.split('=')[1].strip())
+                                    utilizations.append(util)
+                                except:
+                                    pass
+
+                        # Apply utilization to first GPU (simplified approach)
+                        if utilizations and gpus:
+                            gpus[0]["load"] = max(utilizations)
+                except:
+                    pass
+
+        except Exception as e:
+            logger.debug(f"Failed to get GPU info via WMI: {e}")
+
+        return gpus
+
+    def _get_generic_gpu_info_linux(self) -> List[Dict[str, Any]]:
+        """Get GPU info on Linux using various methods."""
+        gpus = []
+
+        # Try lspci first
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["lspci", "-v", "-nn"],
+                capture_output=True, text=True, timeout=5
+            )
+
+            if result.returncode == 0:
+                current_gpu = None
+                gpu_id = 0
+
+                for line in result.stdout.split('\n'):
+                    # Look for VGA or 3D controller
+                    if 'VGA compatible controller' in line or '3D controller' in line:
+                        # Extract GPU name
+                        parts = line.split(': ', 1)
+                        if len(parts) > 1:
+                            name = parts[1].split(' [')[0].strip()
+                            current_gpu = {
+                                "id": gpu_id,
+                                "name": name,
+                                "load": None,
+                                "memory_used": None,
+                                "memory_total": None,
+                                "memory_percent": None,
+                                "temperature": None,
+                                "power_usage": None
+                            }
+                            gpu_id += 1
+                    elif current_gpu and 'Memory at' in line and 'size=' in line:
+                        # Try to extract memory size
+                        try:
+                            size_part = line.split('size=')[1].split(']')[0]
+                            if 'M' in size_part:
+                                size_mb = int(size_part.replace('M', ''))
+                                current_gpu["memory_total"] = size_mb
+                            elif 'G' in size_part:
+                                size_gb = int(size_part.replace('G', ''))
+                                current_gpu["memory_total"] = size_gb * 1024
+                        except:
+                            pass
+                    elif current_gpu and line.strip() == '':
+                        # Empty line indicates end of device info
+                        gpus.append(current_gpu)
+                        current_gpu = None
+
+                # Don't forget the last GPU
+                if current_gpu:
+                    gpus.append(current_gpu)
+
+        except Exception as e:
+            logger.debug(f"Failed to get GPU info via lspci: {e}")
+
+        # Try to get Intel GPU info
+        try:
+            import subprocess
+
+            # Check for Intel GPU
+            result = subprocess.run(
+                ["cat", "/sys/class/drm/card0/device/vendor"],
+                capture_output=True, text=True, timeout=2
+            )
+
+            if result.returncode == 0 and "0x8086" in result.stdout:  # Intel vendor ID
+                # This is an Intel GPU
+                intel_gpu = {
+                    "id": len(gpus),
+                    "name": "Intel Integrated Graphics",
+                    "load": None,
+                    "memory_used": None,
+                    "memory_total": None,
+                    "memory_percent": None,
+                    "temperature": None,
+                    "power_usage": None
+                }
+
+                # Try to get more specific name
+                try:
+                    result = subprocess.run(
+                        ["cat", "/sys/class/drm/card0/device/label"],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        intel_gpu["name"] = f"Intel {result.stdout.strip()}"
+                except:
+                    pass
+
+                # Try to get temperature
+                try:
+                    result = subprocess.run(
+                        ["cat", "/sys/class/drm/card0/gt/gt0/throttle_reason_status"],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    # This is a simplified approach - actual temperature reading would be more complex
+                except:
+                    pass
+
+                # Only add if we haven't already detected this GPU
+                if not any(gpu for gpu in gpus if "Intel" in gpu.get("name", "")):
+                    gpus.append(intel_gpu)
+
+        except:
+            pass
+
+        # Try AMD GPU detection
+        try:
+            import subprocess
+            import os
+
+            # Check for AMD GPUs in /sys/class/drm/
+            for card in os.listdir("/sys/class/drm/"):
+                if card.startswith("card") and card[4:].isdigit():
+                    vendor_path = f"/sys/class/drm/{card}/device/vendor"
+                    if os.path.exists(vendor_path):
+                        with open(vendor_path, 'r') as f:
+                            vendor = f.read().strip()
+
+                        if "0x1002" in vendor:  # AMD vendor ID
+                            amd_gpu = {
+                                "id": len(gpus),
+                                "name": "AMD Graphics",
+                                "load": None,
+                                "memory_used": None,
+                                "memory_total": None,
+                                "memory_percent": None,
+                                "temperature": None,
+                                "power_usage": None
+                            }
+
+                            # Try to get model name
+                            try:
+                                result = subprocess.run(
+                                    ["cat", f"/sys/class/drm/{card}/device/product_name"],
+                                    capture_output=True, text=True, timeout=2
+                                )
+                                if result.returncode == 0 and result.stdout.strip():
+                                    amd_gpu["name"] = result.stdout.strip()
+                            except:
+                                pass
+
+                            # Try to get temperature
+                            try:
+                                temp_path = f"/sys/class/drm/{card}/device/hwmon/hwmon*/temp1_input"
+                                import glob
+                                temp_files = glob.glob(temp_path)
+                                if temp_files:
+                                    with open(temp_files[0], 'r') as f:
+                                        temp_milli = int(f.read().strip())
+                                        amd_gpu["temperature"] = temp_milli / 1000.0
+                            except:
+                                pass
+
+                            # Only add if we haven't already detected this GPU
+                            if not any(gpu for gpu in gpus if amd_gpu["name"] in gpu.get("name", "")):
+                                gpus.append(amd_gpu)
+
+        except Exception as e:
+            logger.debug(f"Failed to get AMD GPU info: {e}")
+
+        return gpus
+
+    def _get_generic_gpu_info_macos(self) -> List[Dict[str, Any]]:
+        """Get GPU info on macOS using system_profiler."""
+        gpus = []
+        try:
+            import subprocess
+            import json
+
+            # Use system_profiler to get GPU info
+            result = subprocess.run(
+                ["system_profiler", "SPDisplaysDataType", "-json"],
+                capture_output=True, text=True, timeout=5
+            )
+
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                displays_data = data.get("SPDisplaysDataType", [])
+
+                gpu_id = 0
+                for display in displays_data:
+                    # Each display controller is a GPU
+                    gpu_name = display.get("sppci_model", "Unknown GPU")
+
+                    gpu_info = {
+                        "id": gpu_id,
+                        "name": gpu_name,
+                        "load": None,
+                        "memory_used": None,
+                        "memory_total": None,
+                        "memory_percent": None,
+                        "temperature": None,
+                        "power_usage": None
+                    }
+
+                    # Try to get VRAM info
+                    vram = display.get("spdisplays_vram") or display.get("sppci_vram")
+                    if vram:
+                        # Parse VRAM string (e.g., "1536 MB", "8 GB")
+                        try:
+                            parts = vram.split()
+                            if len(parts) >= 2:
+                                value = float(parts[0])
+                                unit = parts[1].upper()
+                                if "GB" in unit:
+                                    gpu_info["memory_total"] = value * 1024  # Convert to MB
+                                elif "MB" in unit:
+                                    gpu_info["memory_total"] = value
+                        except:
+                            pass
+
+                    # Check for Metal support (indicates it's a real GPU)
+                    if display.get("spdisplays_metal"):
+                        gpus.append(gpu_info)
+                        gpu_id += 1
+
+        except Exception as e:
+            logger.debug(f"Failed to get GPU info via system_profiler: {e}")
+
+        # Try ioreg for additional info (like temperature)
+        if gpus:
+            try:
+                import subprocess
+
+                # This would require more complex parsing of ioreg output
+                # For now, we'll skip temperature on macOS
+                pass
+            except:
+                pass
+
+        return gpus
 
     async def collect_data(self) -> Dict[str, Any]:
         gpus = []
 
+        # First try NVIDIA GPUs with existing code
         if self.nvml_initialized and PYNVML_AVAILABLE:
             try:
                 device_count = pynvml.nvmlDeviceGetCount()
@@ -431,7 +754,8 @@ class GPUCollector(BaseCollector):
                         "memory_used": mem_info.used / 1024 / 1024,  # Convert to MB
                         "memory_total": mem_info.total / 1024 / 1024,  # Convert to MB
                         "memory_percent": (mem_info.used / mem_info.total) * 100,
-                        "temperature": temp
+                        "temperature": temp,
+                        "power_usage": power
                     })
             except Exception as e:
                 logger.error(f"Error collecting GPU data with pynvml: {e}")
@@ -465,10 +789,23 @@ class GPUCollector(BaseCollector):
                         "memory_total": mem_info.total / 1024 / 1024,  # Convert to MB
                         "memory_percent": (mem_info.used / mem_info.total) * 100,
                         "temperature": temp,
-                        "power_usage": None  # Add power usage field for consistency
+                        "power_usage": None
                     })
             except Exception as e:
                 logger.error(f"Error collecting GPU data with nvidia-ml-py: {e}")
+
+        # If no NVIDIA GPUs found or NVML not available, try generic methods
+        if not gpus:
+            system = platform.system()
+
+            if system == "Windows":
+                gpus = self._get_generic_gpu_info_windows()
+            elif system == "Linux":
+                gpus = self._get_generic_gpu_info_linux()
+            elif system == "Darwin":
+                gpus = self._get_generic_gpu_info_macos()
+            else:
+                logger.info(f"Generic GPU detection not implemented for {system}")
 
         return {"gpus": gpus}
 
@@ -609,17 +946,35 @@ async def get_cpu_info() -> CPUInfo:
 
 @mcp.tool()
 async def get_gpu_info() -> List[GPUInfo]:
-    """Get current GPU information for all detected GPUs"""
+    """Get information for all detected GPUs in the system.
+
+    Returns a list of GPU information including:
+    - GPU name and model (NVIDIA, AMD, Intel, Apple, etc.)
+    - Current GPU utilization percentage (0-100) when available
+    - VRAM usage in MB (used and total) when available
+    - GPU temperature in Celsius when available
+    - Power usage in watts (NVIDIA only)
+
+    Supports:
+    - NVIDIA GPUs: Full metrics via NVML
+    - AMD GPUs: Basic detection and temperature (Linux)
+    - Intel GPUs: Basic detection
+    - Apple GPUs: Basic detection and VRAM info
+    - Other GPUs: Basic detection via system tools
+
+    Note: Some metrics may be None for non-NVIDIA GPUs.
+    Use this to monitor GPU performance for ML workloads, gaming,
+    or video processing tasks."""
     data = await gpu_collector.get_cached_data()
     gpu_list = []
     for gpu in data.get('gpus', []):
         gpu_list.append(GPUInfo(
             name=gpu.get('name', 'Unknown'),
-            usage_percent=gpu.get('load', 0),
-            memory_used_mb=int(gpu.get('memory_used', 0)),
-            memory_total_mb=int(gpu.get('memory_total', 0)),
+            usage_percent=gpu.get('load', 0) if gpu.get('load') is not None else 0,
+            memory_used_mb=int(gpu.get('memory_used', 0)) if gpu.get('memory_used') is not None else 0,
+            memory_total_mb=int(gpu.get('memory_total', 0)) if gpu.get('memory_total') is not None else 0,
             temperature=gpu.get('temperature'),
-            power_usage=None  # Not available in current implementation
+            power_usage=gpu.get('power_usage')
         ))
     return gpu_list
 
