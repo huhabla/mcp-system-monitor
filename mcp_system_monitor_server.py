@@ -95,7 +95,6 @@ class SystemSnapshot(BaseModel):
 
 
 class BaseCollector(ABC):
-    """Basis-Klasse für alle System-Collectors"""
 
     def __init__(self, update_interval: float = 1.0):
         self.update_interval = update_interval
@@ -105,11 +104,9 @@ class BaseCollector(ABC):
 
     @abstractmethod
     async def collect_data(self) -> Dict[str, Any]:
-        """Sammelt aktuelle Systemdaten"""
         pass
 
     async def get_cached_data(self, max_age: float = 2.0) -> Dict[str, Any]:
-        """Gibt gecachte Daten zurück oder sammelt neue"""
         async with self._lock:
             current_time = time.time()
 
