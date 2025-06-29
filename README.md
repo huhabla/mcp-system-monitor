@@ -92,9 +92,9 @@ Run the server directly:
 python mcp_system_monitor_server.py
 ```
 
-### MCP Json config
+### MCP Servers Json Config
 
-Modify the following JSON template to set the path to the MCP server in your MCP client:
+Modify the following JSON template to set the path to the MCP server in your MCP client for Windows:
 
 ```json
 {
@@ -210,4 +210,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Built with [FastMCP](https://github.com/modelcontextprotocol/python-sdk)
 - System monitoring via [psutil](https://github.com/giampaolo/psutil)
 - NVIDIA GPU support via [nvidia-ml-py](https://pypi.org/project/nvidia-ml-py/)
-- 
