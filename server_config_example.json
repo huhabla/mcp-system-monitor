@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "mpc-system-monitor": {
+    "mcp-system-monitor": {
       "command": "cmd",
       "args": [
         "/c",
-        "C:/Users/Sören Gebbert/Documents/GitHub/mcp-system-monitor/start_mpc_system_monitor.bat"
+        "C:/Users/Sören Gebbert/Documents/GitHub/mcp-system-monitor/start_mcp_system_monitor.bat"
       ]
     }
   }
