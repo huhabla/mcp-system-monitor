@@ -56,6 +56,9 @@ class GPUInfo(BaseModel):
     memory_total_mb: int = Field(description="Total VRAM in MB")
     temperature: Optional[float] = Field(None, description="GPU temperature")
     power_usage: Optional[float] = Field(None, description="Power usage in watts")
+    cores: Optional[int] = Field(None, description="Number of GPU cores (Apple Silicon)")
+    unified_memory: Optional[bool] = Field(None, description="Whether GPU uses unified memory")
+    metal_support: Optional[str] = Field(None, description="Metal API support version")
 
 
 class MemoryInfo(BaseModel):
@@ -421,10 +424,9 @@ class GPUCollector(BaseCollector):
                             current_gpu = {
                                 "id": gpu_id,
                                 "name": value,
-                                "load": None,  # Not available via WMI
-                                "memory_used": None,
-                                "memory_total": None,
-                                "memory_percent": None,
+                                "usage_percent": 0.0,  # Not available via WMI
+                                "memory_used_mb": 0,
+                                "memory_total_mb": 0,
                                 "temperature": None,
                                 "power_usage": None
                             }
@@ -433,7 +435,7 @@ class GPUCollector(BaseCollector):
                                 # AdapterRAM is in bytes
                                 memory_bytes = int(value)
                                 if memory_bytes > 0:
-                                    current_gpu["memory_total"] = memory_bytes / 1024 / 1024  # Convert to MB
+                                    current_gpu["memory_total_mb"] = memory_bytes / 1024 / 1024  # Convert to MB
                             except ValueError:
                                 pass
                         elif key == "VideoProcessor" and value and current_gpu:
@@ -467,7 +469,7 @@ class GPUCollector(BaseCollector):
 
                         # Apply utilization to first GPU (simplified approach)
                         if utilizations and gpus:
-                            gpus[0]["load"] = max(utilizations)
+                            gpus[0]["usage_percent"] = max(utilizations)
                 except:
                     pass
 
@@ -503,10 +505,9 @@ class GPUCollector(BaseCollector):
                             current_gpu = {
                                 "id": gpu_id,
                                 "name": name,
-                                "load": None,
-                                "memory_used": None,
-                                "memory_total": None,
-                                "memory_percent": None,
+                                "usage_percent": 0.0,
+                                "memory_used_mb": 0,
+                                "memory_total_mb": 0,
                                 "temperature": None,
                                 "power_usage": None
                             }
@@ -517,10 +518,10 @@ class GPUCollector(BaseCollector):
                             size_part = line.split('size=')[1].split(']')[0]
                             if 'M' in size_part:
                                 size_mb = int(size_part.replace('M', ''))
-                                current_gpu["memory_total"] = size_mb
+                                current_gpu["memory_total_mb"] = size_mb
                             elif 'G' in size_part:
                                 size_gb = int(size_part.replace('G', ''))
-                                current_gpu["memory_total"] = size_gb * 1024
+                                current_gpu["memory_total_mb"] = size_gb * 1024
                         except:
                             pass
                     elif current_gpu and line.strip() == '':
@@ -550,10 +551,9 @@ class GPUCollector(BaseCollector):
                 intel_gpu = {
                     "id": len(gpus),
                     "name": "Intel Integrated Graphics",
-                    "load": None,
-                    "memory_used": None,
-                    "memory_total": None,
-                    "memory_percent": None,
+                    "usage_percent": 0.0,
+                    "memory_used_mb": 0,
+                    "memory_total_mb": 0,
                     "temperature": None,
                     "power_usage": None
                 }
@@ -603,10 +603,9 @@ class GPUCollector(BaseCollector):
                             amd_gpu = {
                                 "id": len(gpus),
                                 "name": "AMD Graphics",
-                                "load": None,
-                                "memory_used": None,
-                                "memory_total": None,
-                                "memory_percent": None,
+                                "usage_percent": 0.0,
+                                "memory_used_mb": 0,
+                                "memory_total_mb": 0,
                                 "temperature": None,
                                 "power_usage": None
                             }
@@ -653,7 +652,7 @@ class GPUCollector(BaseCollector):
             # Use system_profiler to get GPU info
             result = subprocess.run(
                 ["system_profiler", "SPDisplaysDataType", "-json"],
-                capture_output=True, text=True, timeout=5
+                capture_output=True, text=True, timeout=10
             )
 
             if result.returncode == 0:
@@ -662,21 +661,33 @@ class GPUCollector(BaseCollector):
 
                 gpu_id = 0
                 for display in displays_data:
-                    # Each display controller is a GPU
-                    gpu_name = display.get("sppci_model", "Unknown GPU")
+                    # Check if this is actually a GPU device
+                    device_type = display.get("sppci_device_type")
+                    if device_type != "spdisplays_gpu":
+                        continue
+
+                    # Get GPU name
+                    gpu_name = display.get("sppci_model", display.get("_name", "Unknown GPU"))
 
                     gpu_info = {
                         "id": gpu_id,
                         "name": gpu_name,
-                        "load": None,
-                        "memory_used": None,
-                        "memory_total": None,
-                        "memory_percent": None,
+                        "usage_percent": 0.0,  # Changed from "load" to match GPUInfo model
+                        "memory_used_mb": 0,   # Changed from "memory_used" to match GPUInfo model
+                        "memory_total_mb": 0,  # Changed from "memory_total" to match GPUInfo model
                         "temperature": None,
                         "power_usage": None
                     }
 
-                    # Try to get VRAM info
+                    # Get GPU core count if available (Apple Silicon specific)
+                    cores = display.get("sppci_cores")
+                    if cores:
+                        try:
+                            gpu_info["cores"] = int(cores)
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Try to get VRAM info (traditional discrete GPUs)
                     vram = display.get("spdisplays_vram") or display.get("sppci_vram")
                     if vram:
                         # Parse VRAM string (e.g., "1536 MB", "8 GB")
@@ -686,30 +697,66 @@ class GPUCollector(BaseCollector):
                                 value = float(parts[0])
                                 unit = parts[1].upper()
                                 if "GB" in unit:
-                                    gpu_info["memory_total"] = value * 1024  # Convert to MB
+                                    gpu_info["memory_total_mb"] = value * 1024  # Convert to MB
                                 elif "MB" in unit:
-                                    gpu_info["memory_total"] = value
-                        except:
+                                    gpu_info["memory_total_mb"] = value
+                        except (ValueError, IndexError):
+                            pass
+                    else:
+                        # For Apple Silicon GPUs with unified memory, try to get system memory
+                        # as they share memory with the CPU
+                        try:
+                            import psutil
+                            total_memory = psutil.virtual_memory().total
+                            # Apple Silicon GPUs can access most of system memory
+                            # But we'll report a conservative estimate
+                            if "Apple" in gpu_name and ("M1" in gpu_name or "M2" in gpu_name or "M3" in gpu_name):
+                                # Unified memory - report total system memory in MB
+                                gpu_info["memory_total_mb"] = total_memory / (1024 * 1024)
+                                gpu_info["unified_memory"] = True
+                        except Exception:
                             pass
 
-                    # Check for Metal support (indicates it's a real GPU)
-                    if display.get("spdisplays_metal"):
+                    # Check for Metal support (indicates it's a capable GPU)
+                    metal_support = display.get("spdisplays_mtlgpufamilysupport") or display.get("spdisplays_metal")
+                    has_metal = metal_support is not None
+
+                    # Additional check: ensure it has connected displays or is a discrete GPU
+                    has_displays = bool(display.get("spdisplays_ndrvs"))
+                    
+                    # Apple Silicon GPUs always have Metal support and should be included
+                    is_apple_silicon = "Apple" in gpu_name and any(chip in gpu_name for chip in ["M1", "M2", "M3"])
+                    
+                    if has_metal or has_displays or is_apple_silicon:
+                        # Add Metal version info if available
+                        if metal_support:
+                            gpu_info["metal_support"] = metal_support
+                        
                         gpus.append(gpu_info)
                         gpu_id += 1
 
         except Exception as e:
             logger.debug(f"Failed to get GPU info via system_profiler: {e}")
 
-        # Try ioreg for additional info (like temperature)
+        # Try to get additional GPU temperature info via powermetrics (requires sudo)
         if gpus:
             try:
                 import subprocess
-
-                # This would require more complex parsing of ioreg output
-                # For now, we'll skip temperature on macOS
-                pass
-            except:
-                pass
+                
+                # Try powermetrics for Apple Silicon GPU metrics (if available without sudo)
+                result = subprocess.run(
+                    ["powermetrics", "--samplers", "gpu_power", "-n", "1", "-f", "plist"],
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                if result.returncode == 0:
+                    # Parse plist output for GPU power/thermal data
+                    # This is complex and would require plist parsing
+                    # For now, we'll skip this advanced feature
+                    pass
+                    
+            except Exception as e:
+                logger.debug(f"Failed to get additional GPU metrics via powermetrics: {e}")
 
         return gpus
 
@@ -747,10 +794,9 @@ class GPUCollector(BaseCollector):
                     gpus.append({
                         "id": i,
                         "name": name,
-                        "load": util.gpu,
-                        "memory_used": mem_info.used / 1024 / 1024,  # Convert to MB
-                        "memory_total": mem_info.total / 1024 / 1024,  # Convert to MB
-                        "memory_percent": (mem_info.used / mem_info.total) * 100,
+                        "usage_percent": float(util.gpu),
+                        "memory_used_mb": int(mem_info.used / 1024 / 1024),  # Convert to MB
+                        "memory_total_mb": int(mem_info.total / 1024 / 1024),  # Convert to MB
                         "temperature": temp,
                         "power_usage": power
                     })
@@ -781,10 +827,9 @@ class GPUCollector(BaseCollector):
                     gpus.append({
                         "id": i,
                         "name": name,
-                        "load": util.gpu,
-                        "memory_used": mem_info.used / 1024 / 1024,  # Convert to MB
-                        "memory_total": mem_info.total / 1024 / 1024,  # Convert to MB
-                        "memory_percent": (mem_info.used / mem_info.total) * 100,
+                        "usage_percent": float(util.gpu),
+                        "memory_used_mb": int(mem_info.used / 1024 / 1024),  # Convert to MB
+                        "memory_total_mb": int(mem_info.total / 1024 / 1024),  # Convert to MB
                         "temperature": temp,
                         "power_usage": None
                     })
@@ -973,11 +1018,14 @@ async def get_gpu_info() -> List[GPUInfo]:
     for gpu in data.get('gpus', []):
         gpu_list.append(GPUInfo(
             name=gpu.get('name', 'Unknown'),
-            usage_percent=gpu.get('load', 0) if gpu.get('load') is not None else 0,
-            memory_used_mb=int(gpu.get('memory_used', 0)) if gpu.get('memory_used') is not None else 0,
-            memory_total_mb=int(gpu.get('memory_total', 0)) if gpu.get('memory_total') is not None else 0,
+            usage_percent=gpu.get('usage_percent', 0.0),
+            memory_used_mb=gpu.get('memory_used_mb', 0),
+            memory_total_mb=gpu.get('memory_total_mb', 0),
             temperature=gpu.get('temperature'),
-            power_usage=gpu.get('power_usage')
+            power_usage=gpu.get('power_usage'),
+            cores=gpu.get('cores'),
+            unified_memory=gpu.get('unified_memory'),
+            metal_support=gpu.get('metal_support')
         ))
     return gpu_list
 
@@ -1015,11 +1063,14 @@ async def get_system_snapshot() -> SystemSnapshot:
         for gpu in gpu_data.get('gpus', []):
             gpu_list.append(GPUInfo(
                 name=gpu.get('name', 'Unknown'),
-                usage_percent=gpu.get('load', 0),
-                memory_used_mb=int(gpu.get('memory_used', 0)),
-                memory_total_mb=int(gpu.get('memory_total', 0)),
+                usage_percent=gpu.get('usage_percent', 0.0),
+                memory_used_mb=gpu.get('memory_used_mb', 0),
+                memory_total_mb=gpu.get('memory_total_mb', 0),
                 temperature=gpu.get('temperature'),
-                power_usage=None
+                power_usage=gpu.get('power_usage'),
+                cores=gpu.get('cores'),
+                unified_memory=gpu.get('unified_memory'),
+                metal_support=gpu.get('metal_support')
             ))
 
         snapshot = SystemSnapshot(

@@ -156,9 +156,13 @@ async def test_gpu_collector_no_gpu():
     """Test GPU collector when no GPUs are available"""
     with patch('mcp_system_monitor_server.PYNVML_AVAILABLE', False):
         with patch('mcp_system_monitor_server.NVML_AVAILABLE', False):
-            collector = GPUCollector()
-            data = await collector.collect_data()
-            assert data["gpus"] == []
+            with patch('subprocess.run') as mock_run:
+                # Mock system_profiler to return no GPU data
+                mock_run.return_value.returncode = 1  # Failed command
+                mock_run.return_value.stdout = ""
+                collector = GPUCollector()
+                data = await collector.collect_data()
+                assert data["gpus"] == []
 
 
 @pytest.mark.asyncio

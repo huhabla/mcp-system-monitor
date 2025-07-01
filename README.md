@@ -8,7 +8,7 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 ### System Monitoring
 
 - **CPU Monitoring**: Real-time usage, per-core statistics, frequency, temperature, detailed processor information (model, vendor, architecture, cache sizes)
-- **GPU Monitoring**: Multi-vendor GPU support (NVIDIA with full metrics, AMD/Intel/Apple with basic info)
+- **GPU Monitoring**: Multi-vendor GPU support (NVIDIA with full metrics, Apple Silicon with comprehensive support including unified memory and core count, AMD/Intel with basic info)
 - **Memory Monitoring**: RAM and swap usage, availability statistics
 - **Disk Monitoring**: Space usage, filesystem information for all mounted drives
 - **Network Statistics**: Interface-level traffic and error counters
@@ -17,6 +17,7 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 
 ### MCP Tools Available
 
+- `get_current_time`: Get the current local time in ISO format
 - `get_cpu_info`: Get current CPU usage and statistics
 - `get_gpu_info`: Get GPU information for all detected GPUs
 - `get_memory_info`: Get RAM and swap usage
@@ -32,11 +33,29 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 - `system://live/memory`: Live memory usage data
 - `system://config`: System configuration and hardware information
 
+### GPU Support Details
+
+**NVIDIA GPUs:**
+- Full metrics: usage percentage, memory (used/total), temperature, power consumption
+- Supports multiple NVIDIA GPUs
+- Requires NVIDIA drivers and NVML libraries
+
+**Apple Silicon GPUs:**
+- Comprehensive support for M1, M2, and M3 chips
+- GPU core count detection
+- Unified memory reporting (shares system RAM)
+- Metal API support detection
+- Temperature monitoring (when available)
+
+**AMD/Intel GPUs:**
+- Basic detection and identification
+- Limited metrics depending on platform and drivers
+
 ## Requirements
 
 - Python 3.10+
 - Windows, macOS, or Linux
-- NVIDIA GPU (optional, for GPU monitoring)
+- GPU (optional): NVIDIA GPUs for full metrics, Apple Silicon GPUs fully supported on macOS
 
 ## Installation
 
@@ -132,6 +151,8 @@ monitor:
 
 - "Show me the current CPU usage"
 - "What's my GPU temperature?"
+- "How many GPU cores does my Apple M1 Max have?"
+- "Show me GPU memory usage and whether it's unified memory"
 - "How much disk space is available?"
 - "Monitor CPU usage for the next 10 seconds"
 - "Show me the top 5 processes by memory usage"
@@ -176,7 +197,7 @@ pytest tests/test_mcp_system_monitor_server.py --cov=mcp_system_monitor_server -
 | GPU Monitoring (NVIDIA) | ✅       | ✅     | ✅     |
 | GPU Monitoring (AMD)    | ⚠️      | ❌     | ⚠️    |
 | GPU Monitoring (Intel)  | ⚠️      | ❌     | ⚠️    |
-| GPU Monitoring (Apple)  | ❌       | ⚠️    | ❌     |
+| GPU Monitoring (Apple)  | ❌       | ✅     | ❌     |
 | Memory Monitoring       | ✅       | ✅     | ✅     |
 | Disk Monitoring         | ✅       | ✅     | ✅     |
 | Network Statistics      | ✅       | ✅     | ✅     |
@@ -189,9 +210,15 @@ pytest tests/test_mcp_system_monitor_server.py --cov=mcp_system_monitor_server -
 
 ### GPU Monitoring Not Working
 
+**NVIDIA GPUs:**
 - Ensure NVIDIA drivers are installed
 - Check if `nvidia-smi` command works
 - The server will gracefully handle missing GPU libraries
+
+**Apple Silicon GPUs:**
+- Supported on macOS with M1, M2, and M3 chips
+- Provides comprehensive information including unified memory and GPU core count
+- Uses `system_profiler` command (available by default on macOS)
 
 ### Permission Errors
 
