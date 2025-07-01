@@ -920,6 +920,12 @@ logger.info("System collectors initialized successfully")
 
 
 @mcp.tool()
+async def get_current_datetime() -> str:
+    """Get the current local datetime in ISO Format YYYY-MM-DD HH:MM:SS"""
+    return datetime.now().isoformat(sep=" ", timespec="seconds")
+
+
+@mcp.tool()
 async def get_cpu_info() -> CPUInfo:
     """Get current CPU information including usage, frequency, and temperature.
 
@@ -995,7 +1001,7 @@ async def get_system_snapshot() -> SystemSnapshot:
     """Get complete system information snapshot"""
     logger.debug("Collecting system snapshot")
     try:
-        # Sammle alle Daten parallel
+        # Gather all data in parallel
         cpu_data, gpu_data, memory_data, disk_data, system_data = await asyncio.gather(
             cpu_collector.get_cached_data(),
             gpu_collector.get_cached_data(),
