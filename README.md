@@ -7,6 +7,7 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 
 ### System Monitoring
 
+**Basic System Monitoring:**
 - **CPU Monitoring**: Real-time usage, per-core statistics, frequency, temperature, detailed processor information (model, vendor, architecture, cache sizes)
 - **GPU Monitoring**: Multi-vendor GPU support (NVIDIA with full metrics, Apple Silicon with comprehensive support including unified memory and core count, AMD/Intel with basic info)
 - **Memory Monitoring**: RAM and swap usage, availability statistics
@@ -15,9 +16,16 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 - **Process Monitoring**: Top processes by CPU/memory usage
 - **System Information**: OS details, hostname, uptime, architecture
 
+**Phase 1 Performance Monitoring:**
+- **I/O Performance**: Detailed disk I/O metrics, read/write rates, per-disk statistics, busy time analysis
+- **System Load**: Load averages (1m, 5m, 15m), context switches, interrupts, running/blocked processes
+- **Enhanced Memory**: Detailed memory statistics including buffers, cache, active/inactive memory, page faults, swap activity
+- **Enhanced Network**: Network performance metrics with transfer rates, errors, drops, interface speed and MTU
+
 ### MCP Tools Available
 
-- `get_current_time`: Get the current local time in ISO format
+**Basic System Monitoring (9 tools):**
+- `get_current_datetime`: Get the current local datetime in ISO format
 - `get_cpu_info`: Get current CPU usage and statistics
 - `get_gpu_info`: Get GPU information for all detected GPUs
 - `get_memory_info`: Get RAM and swap usage
@@ -27,11 +35,25 @@ capabilities for LLMs. Built with FastMCP for easy integration with Claude Deskt
 - `get_top_processes`: Get top processes by CPU or memory usage
 - `get_network_stats`: Get network interface statistics
 
+**Phase 1 Performance Monitoring (6 tools):**
+- `get_io_performance`: Get detailed I/O performance metrics and rates
+- `get_system_load`: Get system load averages and process statistics
+- `get_enhanced_memory_info`: Get detailed memory statistics with caches/buffers
+- `get_enhanced_network_stats`: Get enhanced network performance metrics
+- `get_performance_snapshot`: Get complete performance monitoring snapshot
+- `monitor_io_performance`: Monitor I/O performance over specified duration with trend analysis
+
 ### MCP Resources
 
+**Basic System Resources (3 resources):**
 - `system://live/cpu`: Live CPU usage data
 - `system://live/memory`: Live memory usage data
 - `system://config`: System configuration and hardware information
+
+**Phase 1 Performance Resources (3 resources):**
+- `system://performance/io`: Live I/O performance data
+- `system://performance/load`: Live system load data
+- `system://performance/network`: Live network performance data
 
 ### GPU Support Details
 
@@ -149,6 +171,7 @@ Modify the following JSON template to set the path to the MCP server in your MCP
 Once connected to Claude Desktop or another MCP client, you can use natural language to interact with the system
 monitor:
 
+**Basic System Monitoring:**
 - "Show me the current CPU usage"
 - "What's my GPU temperature?"
 - "How many GPU cores does my Apple M1 Max have?"
@@ -158,12 +181,21 @@ monitor:
 - "Show me the top 5 processes by memory usage"
 - "Get a complete system snapshot"
 
+**Phase 1 Performance Monitoring:**
+- "Show me detailed I/O performance metrics"
+- "What's the current system load average?"
+- "Monitor I/O performance for the next 30 seconds"
+- "Show me enhanced memory statistics with cache information"
+- "Get detailed network performance metrics"
+- "Give me a complete performance snapshot"
+
 ## Architecture
 
 The server uses a modular collector-based architecture:
 
 - **BaseCollector**: Abstract base class providing caching and async data collection
 - **Specialized Collectors**: CPU, GPU, Memory, Disk, Network, Process, and System collectors
+- **Phase 1 Performance Collectors**: IOPerformance, SystemLoad, EnhancedMemory, and EnhancedNetwork collectors
 - **Pydantic Models**: Type-safe data models for all system information
 - **FastMCP Integration**: Simple decorators for exposing tools and resources
 
@@ -177,17 +209,59 @@ All collectors implement intelligent caching to:
 
 ## Testing
 
-Run the test suite:
+### Comprehensive Test Suite
 
+The project includes a comprehensive test suite with 100% coverage of all MCP tools, resources, and collectors:
+
+**Test Organization:**
+- **`test_mcp_system_monitor_server.py`** - Original basic collector tests
+- **`test_mcp_system_monitor_server_comprehensive.py`** - Comprehensive MCP tools/resources tests
+- **`test_mcp_server_integration.py`** - Integration tests for MCP server protocol compliance
+- **`test_architecture_agnostic.py`** - Cross-platform tests focusing on data contracts
+- **`conftest.py`** - Test configuration, fixtures, and mocking utilities
+
+### Running Tests
+
+**Run all tests:**
 ```bash
-pytest tests/test_mcp_system_monitor_server.py -v
+pytest
 ```
 
-Run with coverage:
-
+**Run tests by category:**
 ```bash
-pytest tests/test_mcp_system_monitor_server.py --cov=mcp_system_monitor_server --cov-report=html
+pytest -m unit              # Fast unit tests only
+pytest -m integration       # Integration tests only
+pytest -m agnostic          # Architecture/OS agnostic tests
+pytest -m "not slow"        # Exclude slow tests
+pytest -m "unit and not slow"  # Fast unit tests for CI
 ```
+
+**Run specific test suites:**
+```bash
+pytest tests/test_mcp_system_monitor_server_comprehensive.py  # All MCP endpoints
+pytest tests/test_mcp_server_integration.py                  # Integration tests
+pytest tests/test_architecture_agnostic.py                   # Cross-platform tests
+```
+
+**Run with coverage:**
+```bash
+pytest --cov=mcp_system_monitor_server --cov-report=html
+```
+
+### Test Coverage
+
+**Complete Coverage:**
+- **15 MCP Tools** (9 basic + 6 Phase 1 performance)
+- **6 MCP Resources** (3 basic + 3 Phase 1 performance)
+- **11 Collectors** (7 basic + 4 Phase 1 performance)
+- **Cross-platform compatibility** testing
+- **Performance benchmarking** and stress testing
+- **Error handling** and edge case validation
+
+**Performance Benchmarks:**
+- System snapshot collection: < 5 seconds
+- Individual tool calls: < 1 second each
+- Concurrent operations: 20 parallel calls < 10 seconds
 
 ## Platform Support
 
