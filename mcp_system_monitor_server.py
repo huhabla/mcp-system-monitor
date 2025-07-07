@@ -87,6 +87,80 @@ class SystemInfo(BaseModel):
     uptime_seconds: int = Field(description="System uptime in seconds")
 
 
+# Phase 1: Performance Enhancement Models
+class IOPerformanceInfo(BaseModel):
+    """I/O Performance metrics"""
+    read_bytes_per_sec: float = Field(description="Disk read bytes per second")
+    write_bytes_per_sec: float = Field(description="Disk write bytes per second")
+    read_count_per_sec: float = Field(description="Read operations per second")
+    write_count_per_sec: float = Field(description="Write operations per second")
+    read_time_ms: float = Field(description="Average read time in milliseconds")
+    write_time_ms: float = Field(description="Average write time in milliseconds")
+    busy_time_percent: float = Field(description="Disk busy time percentage")
+    per_disk_stats: List[Dict[str, Any]] = Field(description="Per-disk I/O statistics")
+
+
+class SystemLoadInfo(BaseModel):
+    """System load and performance metrics"""
+    load_average_1m: Optional[float] = Field(None, description="1-minute load average")
+    load_average_5m: Optional[float] = Field(None, description="5-minute load average") 
+    load_average_15m: Optional[float] = Field(None, description="15-minute load average")
+    context_switches_per_sec: float = Field(description="Context switches per second")
+    interrupts_per_sec: float = Field(description="Interrupts per second")
+    processes_running: int = Field(description="Number of running processes")
+    processes_blocked: int = Field(description="Number of blocked processes")
+    boot_time: datetime = Field(description="System boot time")
+
+
+class EnhancedMemoryInfo(BaseModel):
+    """Enhanced memory statistics beyond basic usage"""
+    total_gb: float = Field(description="Total RAM in GB")
+    available_gb: float = Field(description="Available RAM in GB")
+    used_gb: float = Field(description="Used RAM in GB")
+    usage_percent: float = Field(description="Memory usage percentage")
+    swap_total_gb: float = Field(description="Total swap in GB")
+    swap_used_gb: float = Field(description="Used swap in GB")
+    # Enhanced metrics
+    buffers_gb: Optional[float] = Field(None, description="Buffer memory in GB")
+    cached_gb: Optional[float] = Field(None, description="Cached memory in GB")
+    shared_gb: Optional[float] = Field(None, description="Shared memory in GB")
+    active_gb: Optional[float] = Field(None, description="Active memory in GB")
+    inactive_gb: Optional[float] = Field(None, description="Inactive memory in GB")
+    page_faults_per_sec: Optional[float] = Field(None, description="Page faults per second")
+    swap_in_per_sec: Optional[float] = Field(None, description="Swap in operations per second")
+    swap_out_per_sec: Optional[float] = Field(None, description="Swap out operations per second")
+
+
+class EnhancedNetworkInfo(BaseModel):
+    """Enhanced network statistics with performance metrics"""
+    interface_name: str = Field(description="Network interface name")
+    bytes_sent: int = Field(description="Total bytes sent")
+    bytes_recv: int = Field(description="Total bytes received")
+    packets_sent: int = Field(description="Total packets sent")
+    packets_recv: int = Field(description="Total packets received")
+    # Enhanced metrics
+    bytes_sent_per_sec: float = Field(description="Bytes sent per second")
+    bytes_recv_per_sec: float = Field(description="Bytes received per second") 
+    packets_sent_per_sec: float = Field(description="Packets sent per second")
+    packets_recv_per_sec: float = Field(description="Packets received per second")
+    errors_in: int = Field(description="Input errors")
+    errors_out: int = Field(description="Output errors")
+    drops_in: int = Field(description="Input packets dropped")
+    drops_out: int = Field(description="Output packets dropped")
+    speed_mbps: Optional[float] = Field(None, description="Interface speed in Mbps")
+    mtu: Optional[int] = Field(None, description="Maximum transmission unit")
+    is_up: bool = Field(description="Interface is up")
+
+
+class SystemPerformanceSnapshot(BaseModel):
+    """Complete system performance snapshot"""
+    io_performance: IOPerformanceInfo
+    system_load: SystemLoadInfo
+    enhanced_memory: EnhancedMemoryInfo
+    enhanced_network: List[EnhancedNetworkInfo]
+    collection_time: datetime = Field(default_factory=datetime.now)
+
+
 class SystemSnapshot(BaseModel):
     """Complete system information snapshot"""
     system: SystemInfo
@@ -942,6 +1016,333 @@ class SystemCollector(BaseCollector):
         }
 
 
+# Phase 1: Performance Enhancement Collectors
+class IOPerformanceCollector(BaseCollector):
+    """Collector for I/O performance metrics"""
+    
+    def __init__(self):
+        super().__init__()
+        self._last_io_stats = None
+        self._last_io_time = None
+    
+    async def collect_data(self) -> Dict[str, Any]:
+        """Collect I/O performance data"""
+        current_time = time.time()
+        current_stats = psutil.disk_io_counters()
+        
+        # Initialize per-disk stats
+        per_disk_stats = []
+        try:
+            per_disk = psutil.disk_io_counters(perdisk=True)
+            for disk_name, disk_stats in per_disk.items():
+                per_disk_stats.append({
+                    "device": disk_name,
+                    "read_bytes": disk_stats.read_bytes,
+                    "write_bytes": disk_stats.write_bytes,
+                    "read_count": disk_stats.read_count,
+                    "write_count": disk_stats.write_count,
+                    "read_time_ms": disk_stats.read_time,
+                    "write_time_ms": disk_stats.write_time,
+                    "busy_time_ms": getattr(disk_stats, 'busy_time', 0)
+                })
+        except Exception as e:
+            logger.debug(f"Could not get per-disk stats: {e}")
+        
+        # Calculate rates if we have previous data
+        if self._last_io_stats and self._last_io_time:
+            time_delta = current_time - self._last_io_time
+            if time_delta > 0:
+                read_bytes_per_sec = (current_stats.read_bytes - self._last_io_stats.read_bytes) / time_delta
+                write_bytes_per_sec = (current_stats.write_bytes - self._last_io_stats.write_bytes) / time_delta
+                read_count_per_sec = (current_stats.read_count - self._last_io_stats.read_count) / time_delta
+                write_count_per_sec = (current_stats.write_count - self._last_io_stats.write_count) / time_delta
+            else:
+                read_bytes_per_sec = write_bytes_per_sec = 0
+                read_count_per_sec = write_count_per_sec = 0
+        else:
+            read_bytes_per_sec = write_bytes_per_sec = 0
+            read_count_per_sec = write_count_per_sec = 0
+        
+        # Calculate average I/O times
+        read_time_ms = current_stats.read_time / max(current_stats.read_count, 1)
+        write_time_ms = current_stats.write_time / max(current_stats.write_count, 1)
+        
+        # Calculate busy time percentage (approximation)
+        total_io_time = current_stats.read_time + current_stats.write_time
+        busy_time_percent = min(100.0, (total_io_time / (current_time * 1000)) * 100) if current_time > 0 else 0
+        
+        # Store for next calculation
+        self._last_io_stats = current_stats
+        self._last_io_time = current_time
+        
+        return {
+            "read_bytes_per_sec": read_bytes_per_sec,
+            "write_bytes_per_sec": write_bytes_per_sec,
+            "read_count_per_sec": read_count_per_sec,
+            "write_count_per_sec": write_count_per_sec,
+            "read_time_ms": read_time_ms,
+            "write_time_ms": write_time_ms,
+            "busy_time_percent": busy_time_percent,
+            "per_disk_stats": per_disk_stats
+        }
+
+
+class SystemLoadCollector(BaseCollector):
+    """Collector for system load and performance metrics"""
+    
+    def __init__(self):
+        super().__init__()
+        self._last_cpu_stats = None
+        self._last_stats_time = None
+    
+    async def collect_data(self) -> Dict[str, Any]:
+        """Collect system load data"""
+        current_time = time.time()
+        
+        # Get load averages (Unix-like systems only)
+        load_averages = None
+        try:
+            if hasattr(psutil, 'getloadavg'):
+                load_1, load_5, load_15 = psutil.getloadavg()
+                load_averages = {
+                    "load_average_1m": load_1,
+                    "load_average_5m": load_5,
+                    "load_average_15m": load_15
+                }
+        except (AttributeError, OSError):
+            # Windows doesn't have load averages
+            load_averages = {
+                "load_average_1m": None,
+                "load_average_5m": None,
+                "load_average_15m": None
+            }
+        
+        # Get CPU times for context switches and interrupts calculation
+        cpu_times = psutil.cpu_times()
+        
+        # Calculate context switches and interrupts per second
+        context_switches_per_sec = 0
+        interrupts_per_sec = 0
+        
+        if self._last_cpu_stats and self._last_stats_time:
+            time_delta = current_time - self._last_stats_time
+            if time_delta > 0:
+                try:
+                    # Some platforms provide these stats
+                    current_ctx_switches = getattr(cpu_times, 'ctx_switches', 0)
+                    current_interrupts = getattr(cpu_times, 'interrupts', 0)
+                    
+                    last_ctx_switches = getattr(self._last_cpu_stats, 'ctx_switches', 0)
+                    last_interrupts = getattr(self._last_cpu_stats, 'interrupts', 0)
+                    
+                    context_switches_per_sec = (current_ctx_switches - last_ctx_switches) / time_delta
+                    interrupts_per_sec = (current_interrupts - last_interrupts) / time_delta
+                except AttributeError:
+                    # Platform doesn't provide these stats
+                    pass
+        
+        self._last_cpu_stats = cpu_times
+        self._last_stats_time = current_time
+        
+        # Count running and blocked processes
+        processes_running = 0
+        processes_blocked = 0
+        
+        try:
+            for proc in psutil.process_iter(['status']):
+                try:
+                    status = proc.info['status']
+                    if status in [psutil.STATUS_RUNNING, psutil.STATUS_WAKING]:
+                        processes_running += 1
+                    elif status in [psutil.STATUS_DISK_SLEEP, psutil.STATUS_STOPPED]:
+                        processes_blocked += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            logger.debug(f"Could not count process states: {e}")
+        
+        # Get boot time
+        boot_time = datetime.fromtimestamp(psutil.boot_time())
+        
+        result = {
+            "context_switches_per_sec": context_switches_per_sec,
+            "interrupts_per_sec": interrupts_per_sec,
+            "processes_running": processes_running,
+            "processes_blocked": processes_blocked,
+            "boot_time": boot_time
+        }
+        result.update(load_averages)
+        
+        return result
+
+
+class EnhancedMemoryCollector(BaseCollector):
+    """Collector for enhanced memory statistics"""
+    
+    def __init__(self):
+        super().__init__()
+        self._last_memory_stats = None
+        self._last_memory_time = None
+    
+    async def collect_data(self) -> Dict[str, Any]:
+        """Collect enhanced memory data"""
+        current_time = time.time()
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        
+        # Basic memory info
+        result = {
+            "total_gb": mem.total / (1024 ** 3),
+            "available_gb": mem.available / (1024 ** 3),
+            "used_gb": mem.used / (1024 ** 3),
+            "usage_percent": mem.percent,
+            "swap_total_gb": swap.total / (1024 ** 3),
+            "swap_used_gb": swap.used / (1024 ** 3)
+        }
+        
+        # Enhanced memory statistics (platform-dependent)
+        try:
+            # Linux-specific memory details
+            if hasattr(mem, 'buffers'):
+                result["buffers_gb"] = mem.buffers / (1024 ** 3)
+            if hasattr(mem, 'cached'):
+                result["cached_gb"] = mem.cached / (1024 ** 3)
+            if hasattr(mem, 'shared'):
+                result["shared_gb"] = mem.shared / (1024 ** 3)
+            if hasattr(mem, 'active'):
+                result["active_gb"] = mem.active / (1024 ** 3)
+            if hasattr(mem, 'inactive'):
+                result["inactive_gb"] = mem.inactive / (1024 ** 3)
+        except AttributeError:
+            # Platform doesn't provide these stats
+            pass
+        
+        # Calculate page faults and swap rates per second
+        page_faults_per_sec = None
+        swap_in_per_sec = None
+        swap_out_per_sec = None
+        
+        try:
+            # Try to get memory statistics (Linux)
+            import os
+            if os.path.exists('/proc/vmstat'):
+                with open('/proc/vmstat', 'r') as f:
+                    vmstat = f.read()
+                    
+                current_stats = {}
+                for line in vmstat.split('\n'):
+                    if line.strip():
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            current_stats[parts[0]] = int(parts[1])
+                
+                if self._last_memory_stats and self._last_memory_time:
+                    time_delta = current_time - self._last_memory_time
+                    if time_delta > 0:
+                        # Calculate rates
+                        pgfault_current = current_stats.get('pgfault', 0)
+                        pgfault_last = self._last_memory_stats.get('pgfault', 0)
+                        page_faults_per_sec = (pgfault_current - pgfault_last) / time_delta
+                        
+                        pswpin_current = current_stats.get('pswpin', 0)
+                        pswpin_last = self._last_memory_stats.get('pswpin', 0)
+                        swap_in_per_sec = (pswpin_current - pswpin_last) / time_delta
+                        
+                        pswpout_current = current_stats.get('pswpout', 0)
+                        pswpout_last = self._last_memory_stats.get('pswpout', 0)
+                        swap_out_per_sec = (pswpout_current - pswpout_last) / time_delta
+                
+                self._last_memory_stats = current_stats
+                self._last_memory_time = current_time
+                
+        except Exception as e:
+            logger.debug(f"Could not get enhanced memory stats: {e}")
+        
+        if page_faults_per_sec is not None:
+            result["page_faults_per_sec"] = page_faults_per_sec
+        if swap_in_per_sec is not None:
+            result["swap_in_per_sec"] = swap_in_per_sec
+        if swap_out_per_sec is not None:
+            result["swap_out_per_sec"] = swap_out_per_sec
+        
+        return result
+
+
+class EnhancedNetworkCollector(BaseCollector):
+    """Collector for enhanced network statistics"""
+    
+    def __init__(self):
+        super().__init__()
+        self._last_network_stats = None
+        self._last_network_time = None
+    
+    async def collect_data(self) -> Dict[str, Any]:
+        """Collect enhanced network data"""
+        current_time = time.time()
+        net_io = psutil.net_io_counters(pernic=True)
+        
+        enhanced_interfaces = []
+        
+        for interface_name, stats in net_io.items():
+            # Calculate rates if we have previous data
+            bytes_sent_per_sec = 0
+            bytes_recv_per_sec = 0
+            packets_sent_per_sec = 0
+            packets_recv_per_sec = 0
+            
+            if self._last_network_stats and interface_name in self._last_network_stats and self._last_network_time:
+                time_delta = current_time - self._last_network_time
+                if time_delta > 0:
+                    last_stats = self._last_network_stats[interface_name]
+                    bytes_sent_per_sec = (stats.bytes_sent - last_stats.bytes_sent) / time_delta
+                    bytes_recv_per_sec = (stats.bytes_recv - last_stats.bytes_recv) / time_delta
+                    packets_sent_per_sec = (stats.packets_sent - last_stats.packets_sent) / time_delta
+                    packets_recv_per_sec = (stats.packets_recv - last_stats.packets_recv) / time_delta
+            
+            # Get interface details
+            speed_mbps = None
+            mtu = None
+            is_up = False
+            
+            try:
+                # Get network interface addresses and stats
+                net_if_addrs = psutil.net_if_addrs()
+                net_if_stats = psutil.net_if_stats()
+                
+                if interface_name in net_if_stats:
+                    if_stats = net_if_stats[interface_name]
+                    is_up = if_stats.isup
+                    speed_mbps = if_stats.speed if if_stats.speed > 0 else None
+                    mtu = if_stats.mtu
+            except Exception as e:
+                logger.debug(f"Could not get interface details for {interface_name}: {e}")
+            
+            enhanced_interfaces.append({
+                "interface_name": interface_name,
+                "bytes_sent": stats.bytes_sent,
+                "bytes_recv": stats.bytes_recv,
+                "packets_sent": stats.packets_sent,
+                "packets_recv": stats.packets_recv,
+                "bytes_sent_per_sec": bytes_sent_per_sec,
+                "bytes_recv_per_sec": bytes_recv_per_sec,
+                "packets_sent_per_sec": packets_sent_per_sec,
+                "packets_recv_per_sec": packets_recv_per_sec,
+                "errors_in": stats.errin,
+                "errors_out": stats.errout,
+                "drops_in": stats.dropin,
+                "drops_out": stats.dropout,
+                "speed_mbps": speed_mbps,
+                "mtu": mtu,
+                "is_up": is_up
+            })
+        
+        # Store for next calculation
+        self._last_network_stats = net_io
+        self._last_network_time = current_time
+        
+        return {"enhanced_interfaces": enhanced_interfaces}
+
+
 mcp = FastMCP(
     name="SystemMonitor",
     dependencies=[
@@ -961,6 +1362,13 @@ disk_collector = DiskCollector()
 system_collector = SystemCollector()
 process_collector = ProcessCollector()
 network_collector = NetworkCollector()
+
+# Phase 1: Performance Enhancement Collectors
+io_performance_collector = IOPerformanceCollector()
+system_load_collector = SystemLoadCollector()
+enhanced_memory_collector = EnhancedMemoryCollector()
+enhanced_network_collector = EnhancedNetworkCollector()
+
 logger.info("System collectors initialized successfully")
 
 
@@ -1189,6 +1597,231 @@ Vendor: {cpu_data.get('vendor', 'Unknown')}
 Cores: {cpu_data.get('core_count', 0)} physical, {cpu_data.get('thread_count', 0)} logical{cache_info}
 Uptime: {system_data.get('uptime_seconds', 0)} seconds
 """
+
+
+# Phase 1: Performance Enhancement MCP Tools
+@mcp.tool()
+async def get_io_performance() -> IOPerformanceInfo:
+    """Get detailed I/O performance metrics including read/write rates and per-disk statistics.
+    
+    Returns comprehensive I/O performance data:
+    - Read/write bytes and operations per second
+    - Average I/O response times
+    - Disk busy time percentage
+    - Per-disk detailed statistics
+    
+    This tool is essential for identifying I/O bottlenecks and storage performance issues."""
+    data = await io_performance_collector.get_cached_data()
+    return IOPerformanceInfo(**data)
+
+
+@mcp.tool()
+async def get_system_load() -> SystemLoadInfo:
+    """Get system load averages and process statistics.
+    
+    Returns system performance metrics:
+    - Load averages (1, 5, 15 minutes) on Unix-like systems
+    - Context switches and interrupts per second
+    - Running and blocked process counts
+    - System boot time
+    
+    This tool helps identify system performance bottlenecks and resource contention."""
+    data = await system_load_collector.get_cached_data()
+    return SystemLoadInfo(**data)
+
+
+@mcp.tool()
+async def get_enhanced_memory_info() -> EnhancedMemoryInfo:
+    """Get detailed memory statistics beyond basic usage.
+    
+    Returns enhanced memory metrics:
+    - Basic memory usage (total, used, available, swap)
+    - Buffer and cache memory details (Linux)
+    - Active and inactive memory breakdown
+    - Page faults and swap activity rates
+    
+    This tool provides deep insight into memory utilization patterns and performance."""
+    data = await enhanced_memory_collector.get_cached_data()
+    return EnhancedMemoryInfo(**data)
+
+
+@mcp.tool()
+async def get_enhanced_network_stats() -> List[EnhancedNetworkInfo]:
+    """Get detailed network statistics with performance metrics.
+    
+    Returns comprehensive network data for each interface:
+    - Current transfer rates (bytes/packets per second)
+    - Total transfer statistics
+    - Error and drop counters
+    - Interface speed, MTU, and status
+    
+    This tool is crucial for network performance monitoring and troubleshooting."""
+    data = await enhanced_network_collector.get_cached_data()
+    enhanced_interfaces = data.get('enhanced_interfaces', [])
+    return [EnhancedNetworkInfo(**interface) for interface in enhanced_interfaces]
+
+
+@mcp.tool()
+async def get_performance_snapshot() -> SystemPerformanceSnapshot:
+    """Get complete system performance snapshot with all Phase 1 enhancements.
+    
+    Returns a comprehensive performance overview including:
+    - I/O performance metrics
+    - System load and process statistics  
+    - Enhanced memory analysis
+    - Detailed network performance data
+    
+    This tool provides a complete performance picture for system analysis and optimization."""
+    logger.debug("Collecting performance snapshot")
+    try:
+        # Gather all performance data in parallel
+        io_data, load_data, memory_data, network_data = await asyncio.gather(
+            io_performance_collector.get_cached_data(),
+            system_load_collector.get_cached_data(),
+            enhanced_memory_collector.get_cached_data(),
+            enhanced_network_collector.get_cached_data()
+        )
+        
+        # Convert network data
+        enhanced_interfaces = network_data.get('enhanced_interfaces', [])
+        network_list = [EnhancedNetworkInfo(**interface) for interface in enhanced_interfaces]
+        
+        snapshot = SystemPerformanceSnapshot(
+            io_performance=IOPerformanceInfo(**io_data),
+            system_load=SystemLoadInfo(**load_data),
+            enhanced_memory=EnhancedMemoryInfo(**memory_data),
+            enhanced_network=network_list
+        )
+        
+        logger.info("Performance snapshot collected successfully")
+        return snapshot
+        
+    except Exception as e:
+        logger.error(f"Failed to collect performance snapshot: {e}")
+        raise
+
+
+@mcp.tool()
+async def monitor_io_performance(duration_seconds: int = 5) -> Dict[str, Any]:
+    """Monitor I/O performance over a specified duration.
+    
+    Args:
+        duration_seconds: Duration to monitor I/O performance (default: 5 seconds)
+    
+    Returns monitoring data with:
+    - Average, minimum, and maximum I/O rates
+    - Sample data for trend analysis
+    - Per-disk performance breakdown
+    
+    This tool helps identify I/O performance patterns and bottlenecks over time."""
+    logger.info(f"Starting I/O performance monitoring for {duration_seconds} seconds")
+    samples = []
+    
+    for i in range(duration_seconds):
+        data = await io_performance_collector.collect_data()
+        sample = {
+            "timestamp": datetime.now().isoformat(),
+            "read_bytes_per_sec": data['read_bytes_per_sec'],
+            "write_bytes_per_sec": data['write_bytes_per_sec'],
+            "total_bytes_per_sec": data['read_bytes_per_sec'] + data['write_bytes_per_sec'],
+            "busy_time_percent": data['busy_time_percent']
+        }
+        samples.append(sample)
+        logger.debug(f"I/O sample {i + 1}/{duration_seconds}: {sample['total_bytes_per_sec']:.1f} bytes/sec")
+        
+        if i < duration_seconds - 1:  # Don't sleep after the last sample
+            await asyncio.sleep(1)
+    
+    # Calculate statistics
+    total_rates = [sample['total_bytes_per_sec'] for sample in samples]
+    busy_times = [sample['busy_time_percent'] for sample in samples]
+    
+    result = {
+        "duration_seconds": duration_seconds,
+        "io_rates": {
+            "average_bytes_per_sec": sum(total_rates) / len(total_rates) if total_rates else 0,
+            "minimum_bytes_per_sec": min(total_rates) if total_rates else 0,
+            "maximum_bytes_per_sec": max(total_rates) if total_rates else 0
+        },
+        "busy_time": {
+            "average_percent": sum(busy_times) / len(busy_times) if busy_times else 0,
+            "minimum_percent": min(busy_times) if busy_times else 0,
+            "maximum_percent": max(busy_times) if busy_times else 0
+        },
+        "samples": samples
+    }
+    
+    logger.info(f"I/O monitoring complete. Average rate: {result['io_rates']['average_bytes_per_sec']:.1f} bytes/sec")
+    return result
+
+
+# Phase 1: Performance Enhancement Resources
+@mcp.resource("system://performance/io")
+async def live_io_performance_resource() -> str:
+    """Live I/O performance data updated every 2 seconds.
+    
+    Provides formatted I/O performance metrics:
+    - Current read/write rates in MB/s
+    - I/O operations per second
+    - Disk busy time percentage
+    
+    This resource is ideal for real-time I/O performance monitoring."""
+    data = await io_performance_collector.get_cached_data()
+    
+    read_mb_s = data.get('read_bytes_per_sec', 0) / (1024 * 1024)
+    write_mb_s = data.get('write_bytes_per_sec', 0) / (1024 * 1024)
+    read_ops = data.get('read_count_per_sec', 0)
+    write_ops = data.get('write_count_per_sec', 0)
+    busy_percent = data.get('busy_time_percent', 0)
+    
+    return f"I/O Performance: Read {read_mb_s:.1f}MB/s ({read_ops:.1f} ops/s) | Write {write_mb_s:.1f}MB/s ({write_ops:.1f} ops/s) | Busy {busy_percent:.1f}%"
+
+
+@mcp.resource("system://performance/load")
+async def live_system_load_resource() -> str:
+    """Live system load data updated every 2 seconds.
+    
+    Provides formatted system load metrics:
+    - Load averages (when available)
+    - Process counts (running/blocked)
+    - System activity indicators
+    
+    This resource provides quick system performance overview."""
+    data = await system_load_collector.get_cached_data()
+    
+    load_info = ""
+    if data.get('load_average_1m') is not None:
+        load_info = f"Load: {data['load_average_1m']:.2f}, {data['load_average_5m']:.2f}, {data['load_average_15m']:.2f} | "
+    
+    processes_info = f"Processes: {data.get('processes_running', 0)} running, {data.get('processes_blocked', 0)} blocked"
+    
+    return f"System Load: {load_info}{processes_info}"
+
+
+@mcp.resource("system://performance/network")
+async def live_network_performance_resource() -> str:
+    """Live network performance data updated every 2 seconds.
+    
+    Provides formatted network performance summary:
+    - Active interface transfer rates
+    - Total network activity
+    - Interface status overview
+    
+    This resource gives quick network performance visibility."""
+    data = await enhanced_network_collector.get_cached_data()
+    interfaces = data.get('enhanced_interfaces', [])
+    
+    if not interfaces:
+        return "Network: No active interfaces detected"
+    
+    # Find the most active interface
+    most_active = max(interfaces, key=lambda x: x['bytes_sent_per_sec'] + x['bytes_recv_per_sec'])
+    
+    total_sent = sum(iface['bytes_sent_per_sec'] for iface in interfaces if iface['is_up']) / (1024 * 1024)
+    total_recv = sum(iface['bytes_recv_per_sec'] for iface in interfaces if iface['is_up']) / (1024 * 1024)
+    active_count = sum(1 for iface in interfaces if iface['is_up'])
+    
+    return f"Network: {active_count} active interfaces | Total: ↑{total_sent:.1f}MB/s ↓{total_recv:.1f}MB/s | Active: {most_active['interface_name']}"
 
 
 if __name__ == "__main__":

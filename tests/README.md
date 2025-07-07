@@ -78,10 +78,23 @@ pytest --cov=mcp_system_monitor_server --cov-report=term-missing --cov-report=ht
 - `get_top_processes` - Process monitoring and ranking
 - `get_network_stats` - Network interface statistics
 
+#### Phase 1: Performance Enhancement Tools ✅
+- `get_io_performance` - I/O performance metrics and rates
+- `get_system_load` - System load averages and process counts
+- `get_enhanced_memory_info` - Detailed memory statistics with caches/buffers
+- `get_enhanced_network_stats` - Enhanced network performance metrics
+- `get_performance_snapshot` - Complete performance monitoring snapshot
+- `monitor_io_performance` - I/O performance monitoring with trend analysis
+
 ### MCP Resources Tested ✅
 - `system://live/cpu` - Live CPU usage data
 - `system://live/memory` - Live memory usage data  
 - `system://config` - Static system configuration
+
+#### Phase 1: Performance Resources ✅
+- `system://performance/io` - Live I/O performance data
+- `system://performance/load` - Live system load data
+- `system://performance/network` - Live network performance data
 
 ### Collectors Tested ✅
 - `CPUCollector` - CPU data collection with caching
@@ -91,6 +104,12 @@ pytest --cov=mcp_system_monitor_server --cov-report=term-missing --cov-report=ht
 - `SystemCollector` - System information and uptime
 - `ProcessCollector` - Process enumeration and ranking
 - `NetworkCollector` - Network interface statistics
+
+#### Phase 1: Performance Collectors ✅
+- `IOPerformanceCollector` - I/O rates and disk statistics
+- `SystemLoadCollector` - Load averages and process monitoring
+- `EnhancedMemoryCollector` - Detailed memory metrics
+- `EnhancedNetworkCollector` - Enhanced network performance data
 
 ### Cross-Cutting Concerns Tested ✅
 - **Error Handling** - Graceful degradation and error recovery
